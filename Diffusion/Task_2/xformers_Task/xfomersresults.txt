@@ -1,0 +1,26 @@
+--- Benchmarking Baseline Model ---
+  Batch 1/1, Size: 50
+    Warmup run...
+    Warmup done.
+    Batch 1 time: 9.7122 seconds
+  Finished sampling 50 images.
+  Avg time per batch: 9.7122 seconds
+Baseline Total Sampling Time: 9.7122 seconds
+Baseline Average Time per Image: 0.1942 seconds
+
+--- Benchmarking xformers Model ---
+  Batch 1/1, Size: 50
+    Warmup run...
+    Warmup done.
+    Batch 1 time: 8.0981 seconds
+  Finished sampling 50 images.
+  Avg time per batch: 8.0981 seconds
+xformers Total Sampling Time: 8.0981 seconds
+xformers Average Time per Image: 0.1620 seconds
+
+--- Results ---
+Baseline Time: 9.7122 s (0.1942 s/image)
+xformers Time: 8.0981 s (0.1620 s/image)
+Speedup: 1.20x
+Time Reduction: 16.62%
+Result: xformers provides a speedup.
