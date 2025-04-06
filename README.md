@@ -3,6 +3,10 @@
 
 This repository contains my submissions for the Society for Artificial Intelligence and Deep Learning (SAiDL) Spring Assignment 2025. The assignment consists of two primary tasks: Diffusion Models and Core Machine Learning.
 
+Please refer to the reports for results and analysis.
+
+All files can be found here: [](URL)
+
 ## Project Structure
 
 - [`/Diffusion`](./Diffusion) - Implementation and analysis of Diffusion Models
