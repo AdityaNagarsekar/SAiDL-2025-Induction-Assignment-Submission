@@ -30,7 +30,6 @@ This project explores the integration of **xFormers**, a library for efficient t
    ```bash
    pip install -q xformers
    pip install --upgrade torchvision
-   pip install plotly pandas  # For visualization
    ```
 
 3. **Resolve Dependency Conflicts** (if any):
