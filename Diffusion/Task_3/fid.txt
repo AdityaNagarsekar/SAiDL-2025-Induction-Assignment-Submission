@@ -1,0 +1,25 @@
+FID:  230.7231 (full)
+FID:  248.3587 (swa)
+
+CLIP:
+CMMD: 0.6000 (full)
+CMMD: 0.6440 (swa)
+
+CMMD^2: 0.3600 (full)
+CMMD^2: 0.4148 (swa)
+
+SIGLIP: (SMMD used as name for CLIP -> SIGLIP)
+SMMD: 0.5867 (full)
+SMMD: 0.6922 (swa)
+
+SMMD^2: 0.3442 (full)
+SMMD^2: 0.4792 (swa)
+
+ALIGN: (AMMD used as name for CLIP -> ALIGN)
+AMMD: 0.4971 (full)
+AMMD: 0.5803 (swa)
+
+AMMD^2: 0.2471 (full)
+AMMD^2: 0.3368 (swa)
+
+(used transformers -> CLIP for CLIP, transformers -> AUTO for SIGLIP and ALIGN, used this preimplementation for ALIGN: https://huggingface.co/docs/transformers/en/model_doc/align)
