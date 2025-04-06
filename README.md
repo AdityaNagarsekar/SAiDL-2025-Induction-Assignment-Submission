@@ -11,10 +11,10 @@ This repository contains my submissions for the Society for Artificial Intellige
 ## Quick Links
 
 ### Diffusion Models
-- [Diffusion Project Report](./SAiDL-Diffusion-Aditya-Nagarsekar_compressed.pdf/)
+- [Diffusion Project Report](./SAiDL_Diffusion_Aditya_Nagarsekar.pdf/)
 
 ### Core Machine Learning
-- [CoreML Project Report](./SAiDL-Core-ML-Aditya-Nagarsekar_compressed.pdf)
+- [CoreML Project Report](./SAiDL_Core_ML_Aditya_Nagarsekar.pdf)
 
 
 
