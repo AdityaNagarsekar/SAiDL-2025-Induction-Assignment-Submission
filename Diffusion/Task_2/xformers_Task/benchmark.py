@@ -8,6 +8,7 @@ import torch
 import time
 import math # math might not be strictly needed here anymore, but good to keep if utils change
 import numpy as np # numpy might not be strictly needed here anymore
+from diffusers import DDPMScheduler # Or DDIMScheduler, etc.
 
 # Import configuration parameters
 from config import *
@@ -21,115 +22,83 @@ from modules.attention import XFORMERS_AVAILABLE
 
 # --- Benchmarking Function ---
 
-@torch.no_grad() # Disable gradient calculations for inference/benchmarking
-def sample_images(model: nn.Module, scheduler: DummyScheduler,
-                  num_images: int, num_steps: int, batch_size: int,
-                  device: torch.device) -> float:
-    """
-    Simulates sampling images using the provided model and scheduler,
-    measuring the total execution time on the specified device.
-
-    Args:
-        model (nn.Module): The DiT model instance to benchmark.
-        scheduler (DummyScheduler): The dummy scheduler instance.
-        num_images (int): Total number of images to simulate sampling for.
-        num_steps (int): Number of steps in the dummy sampling loop per image.
-        batch_size (int): Number of images to process in each batch.
-        device (torch.device): The device (e.g., 'cuda') to run the benchmark on.
-
-    Returns:
-        float: Total time taken for the simulation in seconds.
-    """
-    model.eval() # Set the model to evaluation mode
+@torch.no_grad()
+def sample_images(model, scheduler, num_images, num_steps, batch_size, device):
+    """Simulates sampling images using a diffusers scheduler and measures the time."""
+    model.eval()
     model.to(device)
 
-    # Calculate the number of batches needed
     num_batches = (num_images + batch_size - 1) // batch_size
-
-    # Define the shape of the dummy latent input based on global config
-    # Note: For DiT, the input is the full latent, not patchified shape initially
+    # Latent shape based on model config
     latent_shape = (batch_size, IN_CHANNELS, IMG_SIZE, IMG_SIZE)
 
-    total_time_ms = 0.0
-
-    print(f"Starting benchmark: {num_images} images, {num_steps} steps, batch size {batch_size}")
+    total_time = 0.0
 
     for i in range(num_batches):
-        # Determine the actual size of the current batch (last batch might be smaller)
         current_batch_size = min(batch_size, num_images - i * batch_size)
-        if current_batch_size <= 0: # Should not happen with ceiling division, but safe check
-            break
+        if current_batch_size == 0: break
 
-        # Adjust latent shape if it's the last, smaller batch
-        if current_batch_size != batch_size:
+        # Adjust batch size for the last potentially smaller batch
+        if current_batch_size != latent_shape[0]:
              current_latent_shape = (current_batch_size, *latent_shape[1:])
         else:
              current_latent_shape = latent_shape
 
-        print(f"  Processing Batch {i+1}/{num_batches}, Size: {current_batch_size}")
+        print(f"  Batch {i+1}/{num_batches}, Size: {current_batch_size}")
 
-        # --- Warmup Run (Crucial for accurate GPU timing) ---
-        # Run one full sampling loop for the *first batch only* without timing it.
-        # This compiles CUDA kernels, allocates memory, etc.
+        # --- Warmup Run (for the first batch only) ---
         if i == 0:
-            print("    Performing warmup run...")
-            # Create dummy data for warmup
-            latents_warmup = torch.randn(current_latent_shape, device=device, dtype=torch.float32) # Use float32
-            scheduler.set_timesteps(num_steps) # Reset scheduler steps for warmup
-            for t_step_warmup in scheduler.timesteps:
-                ts_warmup = torch.full((current_batch_size,), t_step_warmup, device=device, dtype=torch.long)
-                noise_pred_warmup = model(latents_warmup, ts_warmup)
-                scheduler_output_warmup = scheduler.step(noise_pred_warmup, t_step_warmup, latents_warmup)
-                latents_warmup = scheduler_output_warmup["prev_sample"]
-            # Synchronize after warmup to ensure completion before timed run
-            if device.type == 'cuda':
-                torch.cuda.synchronize()
-            print("    Warmup complete.")
+            print("    Warmup run...")
+            latents_warmup = torch.randn(current_latent_shape, device=device)
+            # Use a timestep within the typical training range (e.g., near the middle)
+            t_warmup = torch.randint(1, scheduler.config.num_train_timesteps // 2, (current_batch_size,), device=device).long()
+            _ = model(latents_warmup, t_warmup) # Run model once
+            torch.cuda.synchronize()
+            print("    Warmup done.")
 
         # --- Timed Run ---
-        # Create fresh dummy latents for the timed run
-        latents = torch.randn(current_latent_shape, device=device, dtype=torch.float32) # Use float32
-        scheduler.set_timesteps(num_steps) # Reset scheduler steps for timed run
+        start_event = torch.cuda.Event(enable_timing=True)
+        end_event = torch.cuda.Event(enable_timing=True)
 
-        # Use CUDA events for accurate GPU timing if available
-        if device.type == 'cuda':
-            start_event = torch.cuda.Event(enable_timing=True)
-            end_event = torch.cuda.Event(enable_timing=True)
-            start_event.record()
-        else: # Fallback to CPU timing
-            start_time = time.perf_counter()
+        # Start with random noise matching the batch size
+        latents = torch.randn(current_latent_shape, device=device)
 
-        # The core dummy sampling loop
+        # Set the number of inference steps in the scheduler
+        scheduler.set_timesteps(num_steps)
+
+        start_event.record()
+
+        # Iterate over the scheduler's timesteps
         for t_step in scheduler.timesteps:
-            # Prepare timestep tensor for the current batch
-            timestep_tensor = torch.full((current_batch_size,), t_step, device=device, dtype=torch.long)
+            # Prepare timestep tensor for the batch
+            # Needs to be broadcastable to the batch size
+            # Use .item() if t_step is a tensor, otherwise just use t_step if it's already int
+            current_t = t_step.item() if isinstance(t_step, torch.Tensor) else t_step
+            timestep_tensor = torch.full((current_batch_size,), current_t, device=device, dtype=torch.long)
 
-            # Model forward pass (predicts noise)
+            # Model prediction (predicts the noise added)
             noise_pred = model(latents, timestep_tensor)
 
-            # Scheduler step (dummy calculation)
+            # Scheduler step: Compute the previous noisy sample
+            # Arguments might vary slightly based on the specific scheduler,
+            # but DDPMScheduler typically takes (model_output, timestep, sample)
             scheduler_output = scheduler.step(noise_pred, t_step, latents)
-            latents = scheduler_output["prev_sample"] # Update latents for the next step
 
-        # Record end time and synchronize
-        if device.type == 'cuda':
-            end_event.record()
-            torch.cuda.synchronize() # IMPORTANT: Wait for all GPU operations to finish
-            batch_time_ms = start_event.elapsed_time(end_event) # Time in milliseconds
-        else:
-            end_time = time.perf_counter()
-            batch_time_ms = (end_time - start_time) * 1000.0 # Time in milliseconds
+            # Update latents using the scheduler's output
+            latents = scheduler_output.prev_sample
 
-        total_time_ms += batch_time_ms
+        end_event.record()
+        torch.cuda.synchronize() # Wait for GPU operations to complete
+
+        batch_time_ms = start_event.elapsed_time(end_event)
+        total_time += batch_time_ms
         print(f"    Batch {i+1} time: {batch_time_ms / 1000.0:.4f} seconds")
 
 
-    # --- Calculate and Print Final Timings ---
-    total_time_sec = total_time_ms / 1000.0
-    avg_time_per_batch = total_time_sec / num_batches if num_batches > 0 else 0.0
-    print(f"\nBenchmark Finished:")
-    print(f"  Total time for {num_images} images: {total_time_sec:.4f} seconds")
-    print(f"  Average time per batch ({batch_size} images/batch): {avg_time_per_batch:.4f} seconds")
+    avg_time_per_batch = (total_time / num_batches) / 1000.0 if num_batches > 0 else 0.0
+    total_time_sec = total_time / 1000.0
+    print(f"  Finished sampling {num_images} images.")
+    print(f"  Avg time per batch: {avg_time_per_batch:.4f} seconds")
 
     return total_time_sec
 
@@ -197,7 +166,13 @@ if __name__ == "__main__":
 
     # --- Instantiate Scheduler ---
     # Use the dummy scheduler for benchmarking
-    scheduler = DummyScheduler(num_steps=NUM_SAMPLING_STEPS)
+    scheduler = DDPMScheduler(
+        num_train_timesteps=1000,  # Max timesteps model was trained for
+        beta_schedule="scaled_linear",  # Common schedule
+        beta_start=0.00085,  # Common start value
+        beta_end=0.012,  # Common end value
+        clip_sample=False  # Don't clip sample range in scheduler
+    )
 
 
     # --- Run Benchmarks ---
